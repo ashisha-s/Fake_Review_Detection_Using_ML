@@ -1,0 +1,22 @@
+# Virtual Environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment Variables
+.env
+.env.*
+
+# Database
+db.sqlite3
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
