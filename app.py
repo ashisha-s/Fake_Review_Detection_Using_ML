@@ -1,3 +1,4 @@
+
 import streamlit as st
 import joblib
 import re
@@ -6,6 +7,7 @@ import nltk
 import numpy as np
 import pandas as pd
 
+from pathlib import Path
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.sentiment import SentimentIntensityAnalyzer
@@ -30,9 +32,13 @@ st.set_page_config(
 @st.cache_resource
 def setup_nltk():
 
-    nltk.download("stopwords", quiet=True)
-    nltk.download("wordnet", quiet=True)
-    nltk.download("vader_lexicon", quiet=True)
+    for resource in [
+        "stopwords",
+        "wordnet",
+        "omw-1.4",
+        "vader_lexicon"
+    ]:
+        nltk.download(resource, quiet=True)
 
     stop_words = set(stopwords.words("english"))
     lemmatizer = WordNetLemmatizer()
@@ -51,22 +57,52 @@ stop_words, lemmatizer, analyzer = setup_nltk()
 @st.cache_resource
 def load_model_files():
 
+    model_folder = Path(__file__).resolve().parent / "models"
+
     model = joblib.load(
-        "models/logistic_regression_model.pkl"
+        model_folder / "logistic_regression_model.pkl"
     )
 
     tfidf = joblib.load(
-        "models/tfidf_vectorizer.pkl"
+        model_folder / "tfidf_vectorizer.pkl"
     )
 
     vader_scaler = joblib.load(
-        "models/vader_scaler.pkl"
+        model_folder / "vader_scaler.pkl"
     )
 
     return model, tfidf, vader_scaler
 
 
-model, tfidf, vader_scaler = load_model_files()
+try:
+    model, tfidf, vader_scaler = load_model_files()
+
+except Exception as e:
+    st.error("Unable to load the trained model files.")
+    st.exception(e)
+    st.stop()
+
+
+# ============================================================
+# VERIFY MODEL CONFIGURATION
+# ============================================================
+
+feature_names = tfidf.get_feature_names_out()
+number_tfidf = len(feature_names)
+
+if list(model.classes_) != [0, 1]:
+    st.error(
+        "Unexpected model labels. Expected 0 = Genuine "
+        "and 1 = Fake."
+    )
+    st.stop()
+
+if model.coef_.shape[1] != number_tfidf + 4:
+    st.error(
+        "Model feature count does not match "
+        "TF-IDF + four VADER features."
+    )
+    st.stop()
 
 
 # ============================================================
@@ -77,30 +113,28 @@ def clean_text(text):
 
     text = str(text).lower()
 
+    # Remove HTML tags
     text = re.sub(r"<.*?>", " ", text)
 
+    # Remove URLs
     text = re.sub(
         r"http\S+|www\S+",
         " ",
         text
     )
 
-    text = re.sub(
-        r"\d+",
-        " ",
-        text
-    )
+    # Remove numbers
+    text = re.sub(r"\d+", " ", text)
 
+    # Remove punctuation
     text = text.translate(
-        str.maketrans(
-            "",
-            "",
-            string.punctuation
-        )
+        str.maketrans("", "", string.punctuation)
     )
 
+    # Tokenization
     words = text.split()
 
+    # Stop-word removal and lemmatization
     words = [
         lemmatizer.lemmatize(word)
         for word in words
@@ -111,14 +145,12 @@ def clean_text(text):
 
 
 # ============================================================
-# VADER
+# VADER FEATURE EXTRACTION
 # ============================================================
 
 def extract_vader_features(text):
 
-    scores = analyzer.polarity_scores(
-        str(text)
-    )
+    scores = analyzer.polarity_scores(str(text))
 
     return np.array([
         scores["pos"],
@@ -134,25 +166,23 @@ def extract_vader_features(text):
 
 def build_feature_vector(review):
 
-    # Preprocessing
+    # Stage 1: Preprocessing
     cleaned_review = clean_text(review)
 
-    # TF-IDF
+    # Stage 2: TF-IDF
     tfidf_vector = tfidf.transform(
         [cleaned_review]
     )
 
-    # Raw VADER
-    vader_raw = extract_vader_features(
-        review
-    )
+    # Stage 3: VADER on original review
+    vader_raw = extract_vader_features(review)
 
-    # Scale VADER exactly as during training
+    # Scale VADER using saved training scaler
     vader_scaled = vader_scaler.transform(
         vader_raw
     )
 
-    # Combine
+    # Combine TF-IDF and VADER
     combined_features = hstack([
         tfidf_vector,
         csr_matrix(vader_scaled)
@@ -168,34 +198,29 @@ def build_feature_vector(review):
 
 
 # ============================================================
-# TF-IDF EXPLANATION
+# TF-IDF INFORMATION
 # ============================================================
 
 def get_tfidf_information(tfidf_vector):
 
-    feature_names = (
-        tfidf.get_feature_names_out()
-    )
-
-    row = tfidf_vector.toarray()[0]
-
-    active_indices = np.where(
-        row > 0
-    )[0]
+    row = tfidf_vector.getrow(0)
 
     information = []
 
-    for index in active_indices:
+    for index, value in zip(row.indices, row.data):
 
         information.append({
             "Term": feature_names[index],
-            "TF-IDF Value": row[index]
+            "TF-IDF Value": float(value)
         })
 
-    df = pd.DataFrame(information)
+    # FIX: Define columns even when there are no active terms
+    df = pd.DataFrame(
+        information,
+        columns=["Term", "TF-IDF Value"]
+    )
 
     if not df.empty:
-
         df = df.sort_values(
             "TF-IDF Value",
             ascending=False
@@ -205,7 +230,7 @@ def get_tfidf_information(tfidf_vector):
 
 
 # ============================================================
-# LOGISTIC REGRESSION CONTRIBUTIONS
+# LOGISTIC REGRESSION FEATURE CONTRIBUTIONS
 # ============================================================
 
 def calculate_feature_contributions(
@@ -215,74 +240,51 @@ def calculate_feature_contributions(
 
     coefficients = model.coef_[0]
 
-    number_tfidf = len(
-        tfidf.get_feature_names_out()
-    )
-
-    # --------------------------------------------------------
     # TF-IDF coefficients
-    # --------------------------------------------------------
+    tfidf_coefficients = coefficients[:number_tfidf]
 
-    tfidf_coefficients = (
-        coefficients[:number_tfidf]
-    )
-
-    tfidf_values = (
-        tfidf_vector.toarray()[0]
-    )
-
-    tfidf_contributions = (
-        tfidf_values *
-        tfidf_coefficients
-    )
-
-    feature_names = (
-        tfidf.get_feature_names_out()
-    )
-
-    active_indices = np.where(
-        tfidf_values > 0
-    )[0]
+    row = tfidf_vector.getrow(0)
 
     word_information = []
 
-    for index in active_indices:
+    for index, value in zip(row.indices, row.data):
 
-        contribution = (
-            tfidf_contributions[index]
+        coefficient = float(
+            tfidf_coefficients[index]
+        )
+
+        contribution = float(
+            value * coefficient
         )
 
         word_information.append({
-
-            "Term":
-                feature_names[index],
-
-            "TF-IDF":
-                tfidf_values[index],
-
-            "Coefficient":
-                tfidf_coefficients[index],
-
-            "Contribution":
-                contribution
+            "Term": feature_names[index],
+            "TF-IDF": float(value),
+            "Coefficient": coefficient,
+            "Contribution": contribution
         })
 
+    # ========================================================
+    # IMPORTANT FIX
+    # ========================================================
+    # Explicitly specify the columns.
+    # This prevents KeyError: 'Contribution'
+    # when the review has no active TF-IDF terms.
 
     word_df = pd.DataFrame(
-        word_information
-    )
-
-
-    # --------------------------------------------------------
-    # VADER coefficients
-    # --------------------------------------------------------
-
-    vader_coefficients = (
-        coefficients[
-            number_tfidf:
-            number_tfidf + 4
+        word_information,
+        columns=[
+            "Term",
+            "TF-IDF",
+            "Coefficient",
+            "Contribution"
         ]
     )
+
+    # VADER coefficients
+    vader_coefficients = coefficients[
+        number_tfidf:number_tfidf + 4
+    ]
 
     vader_names = [
         "Positive",
@@ -295,36 +297,34 @@ def calculate_feature_contributions(
 
     for i in range(4):
 
-        contribution = (
-            vader_scaled[0][i] *
+        scaled_value = float(
+            vader_scaled[0][i]
+        )
+
+        coefficient = float(
             vader_coefficients[i]
         )
 
+        contribution = scaled_value * coefficient
+
         vader_information.append({
-
-            "Feature":
-                vader_names[i],
-
-            "Scaled Value":
-                vader_scaled[0][i],
-
-            "Coefficient":
-                vader_coefficients[i],
-
-            "Contribution":
-                contribution
+            "Feature": vader_names[i],
+            "Scaled Value": scaled_value,
+            "Coefficient": coefficient,
+            "Contribution": contribution
         })
 
-
     vader_df = pd.DataFrame(
-        vader_information
+        vader_information,
+        columns=[
+            "Feature",
+            "Scaled Value",
+            "Coefficient",
+            "Contribution"
+        ]
     )
 
-
-    return (
-        word_df,
-        vader_df
-    )
+    return word_df, vader_df
 
 
 # ============================================================
@@ -347,14 +347,15 @@ st.caption(
 st.divider()
 
 
+# ============================================================
+# REVIEW INPUT
+# ============================================================
+
 review = st.text_area(
     "Enter Hotel Review",
     height=200,
-    placeholder=(
-        "Type or paste a hotel review here..."
-    )
+    placeholder="Type or paste a hotel review here..."
 )
-
 
 analyze = st.button(
     "Analyze Review",
@@ -372,542 +373,580 @@ if analyze:
     if not review.strip():
 
         st.warning(
-            "Please enter a review."
+            "Please enter a review before analyzing."
         )
 
     else:
 
-        (
-            cleaned_review,
-            tfidf_vector,
-            vader_raw,
-            vader_scaled,
-            combined_features
-
-        ) = build_feature_vector(review)
-
-
-        # ====================================================
-        # PREDICTION
-        # ====================================================
-
-        prediction = model.predict(
-            combined_features
-        )[0]
-
-        probabilities = model.predict_proba(
-            combined_features
-        )[0]
-
-        probability_map = dict(
-            zip(
-                model.classes_,
-                probabilities
-            )
-        )
-
-        fake_probability = (
-            probability_map[1] * 100
-        )
-
-        genuine_probability = (
-            probability_map[0] * 100
-        )
-
-
-        # ====================================================
-        # RESULT
-        # ====================================================
-
-        st.divider()
-
-        st.header("Prediction Result")
-
-
-        if prediction == 1:
-
-            st.error(
-                "## 🚨 Fake / Deceptive"
-            )
-
-        else:
-
-            st.success(
-                "## ✅ Genuine / Truthful"
-            )
-
-
-        col1, col2 = st.columns(2)
-
-        col1.metric(
-            "Fake Probability",
-            f"{fake_probability:.2f}%"
-        )
-
-        col2.metric(
-            "Genuine Probability",
-            f"{genuine_probability:.2f}%"
-        )
-
-
-        # ====================================================
-        # EXPLANATION
-        # ====================================================
-
-        st.divider()
-
-        st.header(
-            "How Did the Model Reach This Prediction?"
-        )
-
-        st.write(
-            "The following stages show how the entered "
-            "review was transformed and processed by the "
-            "trained machine-learning pipeline."
-        )
-
-
-        # ====================================================
-        # STAGE 1 - PREPROCESSING
-        # ====================================================
-
-        with st.expander(
-            "1️⃣ Text Preprocessing",
-            expanded=True
-        ):
-
-            st.write(
-                "**Original Review**"
-            )
-
-            st.info(review)
-
-
-            st.write(
-                "**Cleaned Review Used for TF-IDF**"
-            )
-
-            st.code(
-                cleaned_review
-            )
-
-
-            st.write(
-                """
-                The preprocessing stage performs:
-
-                - Lowercase conversion
-                - HTML removal
-                - URL removal
-                - Number removal
-                - Punctuation removal
-                - Tokenization
-                - Stop-word removal
-                - Lemmatization
-                """
-            )
-
-
-        # ====================================================
-        # STAGE 2 - TF-IDF
-        # ====================================================
-
-        with st.expander(
-            "2️⃣ TF-IDF Text Representation"
-        ):
-
-            tfidf_df = (
-                get_tfidf_information(
-                    tfidf_vector
-                )
-            )
-
-            st.write(
-                """
-                TF-IDF converts the cleaned review into
-                numerical values. Higher values indicate
-                terms that receive greater weight in the
-                TF-IDF representation.
-                """
-            )
-
-            if not tfidf_df.empty:
-
-                st.write(
-                    "**Highest TF-IDF Terms**"
-                )
-
-                top_tfidf = (
-                    tfidf_df.head(15)
-                )
-
-                st.dataframe(
-                    top_tfidf,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-
-                chart_data = (
-                    top_tfidf[
-                        ["Term", "TF-IDF Value"]
-                    ]
-                    .set_index("Term")
-                )
-
-                st.bar_chart(
-                    chart_data
-                )
-
-            else:
-
-                st.warning(
-                    "No terms from this review were "
-                    "found in the fitted TF-IDF vocabulary."
-                )
-
-
-        # ====================================================
-        # STAGE 3 - VADER
-        # ====================================================
-
-        with st.expander(
-            "3️⃣ VADER Sentiment Analysis"
-        ):
-
-            vader_display = pd.DataFrame({
-
-                "Sentiment Feature": [
-                    "Positive",
-                    "Negative",
-                    "Neutral",
-                    "Compound"
-                ],
-
-                "Raw Score": [
-                    vader_raw[0][0],
-                    vader_raw[0][1],
-                    vader_raw[0][2],
-                    vader_raw[0][3]
-                ]
-            })
-
-
-            st.dataframe(
-                vader_display,
-                use_container_width=True,
-                hide_index=True
-            )
-
-
-            st.write(
-                f"""
-                **Positive:** {vader_raw[0][0]:.4f}
-
-                **Negative:** {vader_raw[0][1]:.4f}
-
-                **Neutral:** {vader_raw[0][2]:.4f}
-
-                **Compound:** {vader_raw[0][3]:.4f}
-                """
-            )
-
-
-            st.caption(
-                "These raw VADER values are standardized "
-                "using the scaler fitted on the training "
-                "data before being supplied to Logistic Regression."
-            )
-
-
-        # ====================================================
-        # STAGE 4 - FEATURE CONTRIBUTION
-        # ====================================================
-
-        with st.expander(
-            "4️⃣ Feature Contribution to Logistic Regression"
-        ):
+        try:
 
             (
-                word_contributions,
-                vader_contributions
-
-            ) = calculate_feature_contributions(
+                cleaned_review,
                 tfidf_vector,
-                vader_scaled
+                vader_raw,
+                vader_scaled,
+                combined_features
+            ) = build_feature_vector(review)
+
+            # =================================================
+            # MODEL PREDICTION
+            # =================================================
+
+            prediction = int(
+                model.predict(combined_features)[0]
             )
 
+            probabilities = model.predict_proba(
+                combined_features
+            )[0]
 
-            st.write(
-                """
-                Logistic Regression assigns a coefficient
-                to every input feature.
-
-                For this review:
-
-                **Contribution = Feature Value × Model Coefficient**
-
-                A positive contribution pushes the decision
-                toward **Fake/Deceptive (Label 1)**.
-
-                A negative contribution pushes the decision
-                toward **Genuine/Truthful (Label 0)**.
-                """
+            probability_map = dict(
+                zip(model.classes_, probabilities)
             )
 
-
-            # ================================================
-            # WORD CONTRIBUTIONS
-            # ================================================
-
-            if not word_contributions.empty:
-
-                fake_terms = (
-                    word_contributions[
-                        word_contributions[
-                            "Contribution"
-                        ] > 0
-                    ]
-                    .sort_values(
-                        "Contribution",
-                        ascending=False
-                    )
-                    .head(10)
-                )
-
-
-                genuine_terms = (
-                    word_contributions[
-                        word_contributions[
-                            "Contribution"
-                        ] < 0
-                    ]
-                    .sort_values(
-                        "Contribution",
-                        ascending=True
-                    )
-                    .head(10)
-                )
-
-
-                col1, col2 = st.columns(2)
-
-
-                with col1:
-
-                    st.subheader(
-                        "Terms Pushing Toward Fake"
-                    )
-
-                    if not fake_terms.empty:
-
-                        st.dataframe(
-                            fake_terms[
-                                [
-                                    "Term",
-                                    "Contribution"
-                                ]
-                            ],
-                            use_container_width=True,
-                            hide_index=True
-                        )
-
-                    else:
-
-                        st.write(
-                            "No active TF-IDF terms "
-                            "pushed toward Fake."
-                        )
-
-
-                with col2:
-
-                    st.subheader(
-                        "Terms Pushing Toward Genuine"
-                    )
-
-                    if not genuine_terms.empty:
-
-                        st.dataframe(
-                            genuine_terms[
-                                [
-                                    "Term",
-                                    "Contribution"
-                                ]
-                            ],
-                            use_container_width=True,
-                            hide_index=True
-                        )
-
-                    else:
-
-                        st.write(
-                            "No active TF-IDF terms "
-                            "pushed toward Genuine."
-                        )
-
-
-            # ================================================
-            # VADER CONTRIBUTIONS
-            # ================================================
-
-            st.subheader(
-                "VADER Feature Contributions"
+            fake_probability = float(
+                probability_map[1] * 100
             )
 
-            st.dataframe(
-                vader_contributions,
-                use_container_width=True,
-                hide_index=True
+            genuine_probability = float(
+                probability_map[0] * 100
             )
 
+            # =================================================
+            # PREDICTION RESULT
+            # =================================================
 
-        # ====================================================
-        # STAGE 5 - FINAL LOGISTIC REGRESSION CALCULATION
-        # ====================================================
+            st.divider()
 
-        with st.expander(
-            "5️⃣ Final Logistic Regression Decision",
-            expanded=True
-        ):
+            st.header("Prediction Result")
 
-            decision_score = float(
-                model.decision_function(
-                    combined_features
-                )[0]
-            )
-
-            intercept = float(
-                model.intercept_[0]
-            )
-
-
-            tfidf_total = float(
-                word_contributions[
-                    "Contribution"
-                ].sum()
-            )
-
-            vader_total = float(
-                vader_contributions[
-                    "Contribution"
-                ].sum()
-            )
-
-
-            calculated_score = (
-                intercept +
-                tfidf_total +
-                vader_total
-            )
-
-
-            st.write(
-                "**Logistic Regression Calculation**"
-            )
-
-
-            calculation_df = pd.DataFrame({
-
-                "Component": [
-                    "Model Intercept",
-                    "TF-IDF Contribution",
-                    "VADER Contribution",
-                    "Final Decision Score"
-                ],
-
-                "Value": [
-                    intercept,
-                    tfidf_total,
-                    vader_total,
-                    calculated_score
-                ]
-            })
-
-
-            st.dataframe(
-                calculation_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-
-            st.write(
-                "**Decision Score:**",
-                f"{decision_score:.4f}"
-            )
-
-
-            st.write(
-                "**Fake Probability:**",
-                f"{fake_probability:.2f}%"
-            )
-
-
-            st.write(
-                "**Genuine Probability:**",
-                f"{genuine_probability:.2f}%"
-            )
-
-
-            if decision_score >= 0:
+            if prediction == 1:
 
                 st.error(
-                    "Final Decision → FAKE / DECEPTIVE"
+                    "### 🚨 Fake / Deceptive Review"
                 )
 
             else:
 
                 st.success(
-                    "Final Decision → GENUINE / TRUTHFUL"
+                    "### ✅ Genuine / Truthful Review"
                 )
 
+            col1, col2 = st.columns(2)
 
-        # ====================================================
-        # PIPELINE SUMMARY
-        # ====================================================
+            with col1:
+                st.metric(
+                    "Fake Probability",
+                    f"{fake_probability:.2f}%"
+                )
 
-        st.divider()
+            with col2:
+                st.metric(
+                    "Genuine Probability",
+                    f"{genuine_probability:.2f}%"
+                )
 
-        st.subheader(
-            "Prediction Pipeline"
-        )
+            st.caption(
+                "Label 1 = Fake/Deceptive | "
+                "Label 0 = Genuine/Truthful"
+            )
 
-        st.code(
-            """
+            # =================================================
+            # MODEL EXPLANATION
+            # =================================================
+
+            st.divider()
+
+            st.header(
+                "How Did the Model Reach This Prediction?"
+            )
+
+            st.write(
+                "The following stages explain how the "
+                "review is processed and classified using "
+                "the trained machine learning model."
+            )
+
+            # =================================================
+            # STAGE 1: PREPROCESSING
+            # =================================================
+
+            with st.expander(
+                "1️⃣ Text Preprocessing",
+                expanded=True
+            ):
+
+                st.subheader("Original Review")
+
+                st.info(review)
+
+                st.subheader("Cleaned Review")
+
+                if cleaned_review:
+                    st.code(cleaned_review)
+                else:
+                    st.warning(
+                        "The review contains no remaining "
+                        "terms after preprocessing."
+                    )
+
+                st.write(
+                    """
+                    **Preprocessing operations:**
+
+                    - Lowercase conversion
+                    - HTML tag removal
+                    - URL removal
+                    - Number removal
+                    - Punctuation removal
+                    - Tokenization
+                    - Stop-word removal
+                    - Lemmatization
+                    """
+                )
+
+            # =================================================
+            # STAGE 2: TF-IDF
+            # =================================================
+
+            with st.expander(
+                "2️⃣ TF-IDF Text Representation"
+            ):
+
+                st.write(
+                    "TF-IDF transforms the cleaned review "
+                    "into numerical feature values using "
+                    "the vocabulary learned during training."
+                )
+
+                tfidf_df = get_tfidf_information(
+                    tfidf_vector
+                )
+
+                st.metric(
+                    "Active TF-IDF Features",
+                    len(tfidf_df)
+                )
+
+                if not tfidf_df.empty:
+
+                    st.subheader(
+                        "Highest TF-IDF Terms"
+                    )
+
+                    top_tfidf = tfidf_df.head(15)
+
+                    st.dataframe(
+                        top_tfidf,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    chart_data = top_tfidf[
+                        ["Term", "TF-IDF Value"]
+                    ].set_index("Term")
+
+                    st.bar_chart(chart_data)
+
+                else:
+
+                    st.warning(
+                        "No recognized TF-IDF vocabulary "
+                        "terms were found in this review."
+                    )
+
+                st.caption(
+                    "A high TF-IDF value does not by itself "
+                    "mean a term indicates a fake review. "
+                    "Its classification effect depends on "
+                    "the Logistic Regression coefficient."
+                )
+
+            # =================================================
+            # STAGE 3: VADER SENTIMENT
+            # =================================================
+
+            with st.expander(
+                "3️⃣ VADER Sentiment Analysis"
+            ):
+
+                vader_names = [
+                    "Positive",
+                    "Negative",
+                    "Neutral",
+                    "Compound"
+                ]
+
+                vader_display = pd.DataFrame({
+                    "Sentiment Feature": vader_names,
+                    "Raw Score": vader_raw[0]
+                })
+
+                st.subheader(
+                    "Extracted Sentiment Features"
+                )
+
+                st.dataframe(
+                    vader_display,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.metric(
+                        "Positive",
+                        f"{vader_raw[0][0]:.4f}"
+                    )
+
+                    st.metric(
+                        "Negative",
+                        f"{vader_raw[0][1]:.4f}"
+                    )
+
+                with col2:
+                    st.metric(
+                        "Neutral",
+                        f"{vader_raw[0][2]:.4f}"
+                    )
+
+                    st.metric(
+                        "Compound",
+                        f"{vader_raw[0][3]:.4f}"
+                    )
+
+                st.caption(
+                    "VADER scores are extracted from the "
+                    "original review. The four scores are "
+                    "then standardized using the saved "
+                    "VADER scaler before classification."
+                )
+
+            # =================================================
+            # CALCULATE FEATURE CONTRIBUTIONS
+            # =================================================
+
+            (
+                word_contributions,
+                vader_contributions
+            ) = calculate_feature_contributions(
+                tfidf_vector,
+                vader_scaled
+            )
+
+            # =================================================
+            # STAGE 4: FEATURE CONTRIBUTIONS
+            # =================================================
+
+            with st.expander(
+                "4️⃣ Feature Contribution to Logistic Regression"
+            ):
+
+                st.write(
+                    """
+                    Logistic Regression uses a coefficient
+                    for each input feature.
+
+                    **Contribution = Feature Value × Coefficient**
+
+                    - Positive contribution: pushes toward
+                      **Fake/Deceptive (Label 1)**.
+                    - Negative contribution: pushes toward
+                      **Genuine/Truthful (Label 0)**.
+
+                    These contributions explain the model's
+                    numerical calculation, not the actual
+                    truthfulness of the review.
+                    """
+                )
+
+                st.subheader(
+                    "TF-IDF Feature Contributions"
+                )
+
+                if not word_contributions.empty:
+
+                    fake_terms = (
+                        word_contributions[
+                            word_contributions[
+                                "Contribution"
+                            ] > 0
+                        ]
+                        .sort_values(
+                            "Contribution",
+                            ascending=False
+                        )
+                        .head(10)
+                    )
+
+                    genuine_terms = (
+                        word_contributions[
+                            word_contributions[
+                                "Contribution"
+                            ] < 0
+                        ]
+                        .sort_values(
+                            "Contribution",
+                            ascending=True
+                        )
+                        .head(10)
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+
+                        st.markdown(
+                            "#### Terms Pushing Toward Fake"
+                        )
+
+                        if not fake_terms.empty:
+
+                            st.dataframe(
+                                fake_terms[
+                                    ["Term", "Contribution"]
+                                ],
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        else:
+
+                            st.info(
+                                "No active TF-IDF terms "
+                                "pushed toward Fake."
+                            )
+
+                    with col2:
+
+                        st.markdown(
+                            "#### Terms Pushing Toward Genuine"
+                        )
+
+                        if not genuine_terms.empty:
+
+                            st.dataframe(
+                                genuine_terms[
+                                    ["Term", "Contribution"]
+                                ],
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        else:
+
+                            st.info(
+                                "No active TF-IDF terms "
+                                "pushed toward Genuine."
+                            )
+
+                else:
+
+                    st.info(
+                        "No active TF-IDF terms were found. "
+                        "The TF-IDF contribution is zero."
+                    )
+
+                # =============================================
+                # VADER CONTRIBUTIONS
+                # =============================================
+
+                st.subheader(
+                    "VADER Feature Contributions"
+                )
+
+                st.dataframe(
+                    vader_contributions,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.caption(
+                    "VADER contributions are calculated "
+                    "using standardized VADER values, "
+                    "not raw sentiment scores."
+                )
+
+            # =================================================
+            # STAGE 5: FINAL LOGISTIC REGRESSION DECISION
+            # =================================================
+
+            with st.expander(
+                "5️⃣ Final Logistic Regression Decision",
+                expanded=True
+            ):
+
+                decision_score = float(
+                    model.decision_function(
+                        combined_features
+                    )[0]
+                )
+
+                intercept = float(
+                    model.intercept_[0]
+                )
+
+                # FIX: Safe even if there are no TF-IDF terms
+                tfidf_total = float(
+                    word_contributions[
+                        "Contribution"
+                    ].sum()
+                )
+
+                vader_total = float(
+                    vader_contributions[
+                        "Contribution"
+                    ].sum()
+                )
+
+                calculated_score = (
+                    intercept +
+                    tfidf_total +
+                    vader_total
+                )
+
+                calculation_df = pd.DataFrame({
+                    "Component": [
+                        "Model Intercept",
+                        "TF-IDF Contribution",
+                        "VADER Contribution",
+                        "Final Decision Score"
+                    ],
+                    "Value": [
+                        intercept,
+                        tfidf_total,
+                        vader_total,
+                        calculated_score
+                    ]
+                })
+
+                st.subheader(
+                    "Decision Score Calculation"
+                )
+
+                st.dataframe(
+                    calculation_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.write(
+                    "**Logistic Regression Formula:**"
+                )
+
+                st.latex(
+                    r"z = b + \sum_i x_i w_i"
+                )
+
+                st.write(
+                    "**Fake Probability Formula:**"
+                )
+
+                st.latex(
+                    r"P(\mathrm{Fake}) = "
+                    r"\frac{1}{1+e^{-z}}"
+                )
+
+                st.metric(
+                    "Decision Score",
+                    f"{decision_score:.4f}"
+                )
+
+                st.metric(
+                    "Fake Probability",
+                    f"{fake_probability:.2f}%"
+                )
+
+                st.metric(
+                    "Genuine Probability",
+                    f"{genuine_probability:.2f}%"
+                )
+
+                # Verify explanation matches model
+                if np.isclose(
+                    calculated_score,
+                    decision_score,
+                    atol=1e-6
+                ):
+
+                    st.success(
+                        "Feature contributions match "
+                        "the model's decision score."
+                    )
+
+                else:
+
+                    st.warning(
+                        "The calculated contributions "
+                        "do not exactly match the model "
+                        "decision score. Check feature order."
+                    )
+
+                if prediction == 1:
+
+                    st.error(
+                        "Final Decision → FAKE / DECEPTIVE"
+                    )
+
+                else:
+
+                    st.success(
+                        "Final Decision → GENUINE / TRUTHFUL"
+                    )
+
+            # =================================================
+            # PREDICTION PIPELINE
+            # =================================================
+
+            st.divider()
+
+            st.subheader("Prediction Pipeline")
+
+            st.code(
+                """
 Original Review
-      │
-      ├──────────────► VADER Sentiment
-      │                       │
-      │                       ▼
-      │                 VADER Scaler
-      │                       │
-      ▼                       │
-Text Preprocessing            │
-      │                       │
-      ▼                       │
-    TF-IDF                    │
-      │                       │
-      └───────────┬───────────┘
-                  ▼
-       TF-IDF + VADER Features
-                  │
-                  ▼
-        Logistic Regression
-                  │
-                  ▼
-          Fake Probability
-                  │
-                  ▼
-       Fake / Genuine Prediction
-            """
-        )
+      |
+      |----------------------> VADER Sentiment
+      |                               |
+      |                               v
+      |                         VADER Scaler
+      |                               |
+      v                               |
+Text Preprocessing                    |
+      |                               |
+      v                               |
+    TF-IDF                            |
+      |                               |
+      +---------------+---------------+
+                      |
+                      v
+             TF-IDF + VADER
+                      |
+                      v
+             Logistic Regression
+                      |
+                      v
+              Fake Probability
+                      |
+                      v
+           Fake / Genuine Prediction
+                """,
+                language="text"
+            )
 
+            st.caption(
+                "The explanation shows how the trained "
+                "Logistic Regression model calculated its "
+                "prediction. A model prediction is not "
+                "proof that a review is fake or genuine."
+            )
 
-        st.caption(
-            "The displayed contributions describe how the "
-            "trained Logistic Regression model calculated "
-            "its prediction for this review. They should "
-            "not be interpreted as proof that a review is "
-            "deceptive or truthful."
-        )
+        except Exception as e:
+
+            st.error(
+                "An error occurred while analyzing "
+                "the review."
+            )
+
+            st.exception(e)
