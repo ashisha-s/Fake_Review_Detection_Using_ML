@@ -259,9 +259,34 @@ def calculate_feature_contributions(
 # ============================================================
 # USER INTERFACE
 # ============================================================
-st.title(
-    "🔍 Fake Review Detection Using Machine Learning"
-)
+# ============================================================
+# FIXED HEADER (same look, stays visible on scroll)
+# ============================================================
+st.markdown("""
+<style>
+.fixed-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    background: var(--background-color, #ffffff);
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(128,128,128,0.2);
+}
+.fixed-header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+    color: inherit;
+}
+</style>
+<div class="fixed-header">
+    <h1 padding="0">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;🔍 Fake Review Detection Using Machine Learning</h1>
+</div>
+""", unsafe_allow_html=True)
+st.markdown("<div style='height: 4.5rem;'></div>", unsafe_allow_html=True)
 st.write(
     "Enter a hotel review to classify it as "
     "**Fake/Deceptive** or **Genuine/Truthful**."
