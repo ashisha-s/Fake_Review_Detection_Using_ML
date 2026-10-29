@@ -89,10 +89,17 @@
 %--------------------------------
 % Chapter Formatting
 %--------------------------------
+% Chapter formatting for preliminary pages (Centered)
 \titleformat{\chapter}[block]
 {\normalfont\bfseries\fontsize{16}{20}\selectfont\centering}
 {\thechapter.}
 {1em}
+{}
+
+\titleformat{name=\chapter,numberless}[block]
+{\normalfont\bfseries\fontsize{16}{20}\selectfont\centering}
+{}
+{0pt}
 {}
 
 \titlespacing*{\chapter}
@@ -104,7 +111,7 @@
 % Section Formatting
 %--------------------------------
 \titleformat{\section}
-{\normalfont\bfseries\fontsize{14}{18}\selectfont}
+{\normalfont\bfseries\fontsize{14}{18}\selectfont\raggedright}
 {\thesection}
 {1em}
 {}
@@ -118,7 +125,7 @@
 % Subsection Formatting
 %--------------------------------
 \titleformat{\subsection}
-{\normalfont\bfseries\fontsize{12}{16}\selectfont}
+{\normalfont\bfseries\fontsize{12}{16}\selectfont\raggedright}
 {\thesubsection}
 {1em}
 {}
@@ -180,7 +187,7 @@ lab resources, and continuous encouragement throughout
 this endeavour.
 
 I extend my deep gratitude and sincere appreciation to
-my project guide, YOUR GUIDE NAME, for invaluable
+my project guide, Prof.Biju Skaria, for invaluable
 guidance, constructive suggestions, insightful feedback,
 and patient support rendered during all stages of
 this project development.
@@ -200,7 +207,6 @@ this project.
 
 \begin{flushright}
 \textbf{Ashisha S}\\
-Reg No: \textbf{YOUR REGISTER NUMBER}
 \end{flushright}
 
 % =========================================================
@@ -285,7 +291,7 @@ potentially deceptive online reviews.
 % =========================================================
 
 \newpage
-\renewcommand{\contentsname}{Table of Contents}
+\renewcommand{\contentsname}{Contents}
 \tableofcontents
 
 % =========================================================
@@ -320,10 +326,25 @@ potentially deceptive online reviews.
     \renewcommand{\footrulewidth}{0.4pt}
 }
 
+%--------------------------------
+% Chapter Formatting (Left-Aligned from Introduction onwards)
+%--------------------------------
+\titleformat{\chapter}[block]
+{\normalfont\bfseries\fontsize{16}{20}\selectfont\raggedright}
+{\thechapter.}
+{1em}
+{}
+
+\titleformat{name=\chapter,numberless}[block]
+{\normalfont\bfseries\fontsize{16}{20}\selectfont\raggedright}
+{}
+{0pt}
+{}
+
 %================================
 % CHAPTER 1
 %================================
-\chapter{INTRODUCTION}
+\chapter{Introduction}
 
 Online reviews have become an important source of information
 for consumers when making decisions about products and services.
@@ -379,7 +400,7 @@ and improving the reliability of online review platforms.
 % CHAPTER 2
 %================================
 \newpage
-\chapter{SUPPORTING LITERATURE}
+\chapter{Supporting Literature}
 
 \section{Literature Review}
 
@@ -764,7 +785,7 @@ identify a suitable classification approach
 for the proposed system.
 
 \newpage
-\chapter{SYSTEM ANALYSIS}
+\chapter{System Analysis}
 
 System analysis defines the framework of the proposed Fake Review Detection System by studying the dataset, identifying its important characteristics, and determining the preprocessing, feature extraction, and machine learning techniques required for fake review classification. This chapter presents the analysis of the Ott gold-standard dataset and describes the proposed preprocessing and feature extraction approach.
 
@@ -994,71 +1015,6 @@ Commonly occurring words that provide limited useful information for classificat
 
 Lemmatization converts words into their base or dictionary form. It helps reduce different forms of the same word and provides a more consistent representation of the review text. The lemmatized tokens are then combined to obtain the final cleaned review text.
 
-The complete sequence of text preprocessing operations is shown in Figure~\ref{fig:preprocessing_pipeline}.
-
-\begin{figure}[H]
-    \centering
-
-    \begin{tikzpicture}[
-        node distance=0.7cm,
-        every node/.style={
-            font=\small,
-            align=center
-        },
-        process/.style={
-            rectangle,
-            rounded corners,
-            minimum width=5cm,
-            minimum height=0.8cm,
-            draw,
-            text centered
-        },
-        arrow/.style={
-            thick,
-            ->,
-            >=Stealth
-        }
-    ]
-
-    \node (original) [process] {Original Review Text};
-
-    \node (html) [process, below=of original]
-    {HTML Tag Removal};
-
-    \node (lower) [process, below=of html]
-    {Lowercase Conversion};
-
-    \node (punctuation) [process, below=of lower]
-    {Punctuation and Special Character Removal};
-
-    \node (token) [process, below=of punctuation]
-    {Tokenization};
-
-    \node (stopword) [process, below=of token]
-    {Stop-word Removal};
-
-    \node (lemma) [process, below=of stopword]
-    {Lemmatization};
-
-    \node (cleaned) [process, below=of lemma]
-    {Cleaned Review Text};
-
-    \draw [arrow] (original) -- (html);
-    \draw [arrow] (html) -- (lower);
-    \draw [arrow] (lower) -- (punctuation);
-    \draw [arrow] (punctuation) -- (token);
-    \draw [arrow] (token) -- (stopword);
-    \draw [arrow] (stopword) -- (lemma);
-    \draw [arrow] (lemma) -- (cleaned);
-
-    \end{tikzpicture}
-
-    \caption{Text Preprocessing Flowchart}
-    \label{fig:preprocessing_pipeline}
-
-\end{figure}
-
-The final cleaned reviews obtained after these operations are used in the subsequent feature extraction stage. The cleaned text provides the input for TF--IDF feature extraction, while additional linguistic and sentiment-based features are analysed separately.
 
 \subsection{Analysis of Feature Variables}
 
@@ -1261,6 +1217,8 @@ Each feature configuration will be supplied separately to the Logistic Regressio
 
 The activity diagram for Logistic Regression summarizes the conceptual stages of model training and prediction. The optimization steps represent the learning process rather than a specific solver implementation.
 
+Figure~\ref{fig:logistic_activity} illustrates the training and prediction process of Logistic Regression. During training, the model will initialize its parameters, calculate the linear score, apply the sigmoid function, calculate the loss, and update the parameters until convergence. After training, the model will calculate the probability for a new review and classify it as fake or genuine using a threshold of 0.5. In accordance with the dataset labels, Label 1 represents a fake or deceptive review, while Label 0 represents a genuine or truthful review.
+
 \begin{figure}[H]
 \centering
 
@@ -1370,7 +1328,6 @@ The activity diagram for Logistic Regression summarizes the conceptual stages of
 \label{fig:logistic_activity}
 \end{figure}
 
-Figure~\ref{fig:logistic_activity} illustrates the training and prediction process of Logistic Regression. During training, the model will initialize its parameters, calculate the linear score, apply the sigmoid function, calculate the loss, and update the parameters until convergence. After training, the model will calculate the probability for a new review and classify it as fake or genuine using a threshold of 0.5. In accordance with the dataset labels, Label 1 represents a fake or deceptive review, while Label 0 represents a genuine or truthful review.
 
 % ============================================================
 % RANDOM FOREST
@@ -1448,6 +1405,7 @@ Each feature configuration will be provided separately to the Random Forest clas
 
 The activity diagram for Random Forest represents the process of generating multiple decision trees and combining their predictions to obtain the final class.
 
+Figure~\ref{fig:random_forest_activity} shows the main training and prediction stages of Random Forest. Bootstrap samples and random feature subsets are used to construct multiple decision trees. After the required number of trees is completed, a new review is passed through the individual trees and their predictions are combined using majority voting to obtain the final classification. In the proposed system, the final classification will represent either a fake/deceptive review (Label 1) or a genuine/truthful review (Label 0).
 \begin{figure}[H]
 \centering
 
@@ -1552,7 +1510,7 @@ The activity diagram for Random Forest represents the process of generating mult
 \label{fig:random_forest_activity}
 \end{figure}
 
-Figure~\ref{fig:random_forest_activity} shows the main training and prediction stages of Random Forest. Bootstrap samples and random feature subsets are used to construct multiple decision trees. After the required number of trees is completed, a new review is passed through the individual trees and their predictions are combined using majority voting to obtain the final classification. In the proposed system, the final classification will represent either a fake/deceptive review (Label 1) or a genuine/truthful review (Label 0).
+
 
 % ============================================================
 % SUPPORT VECTOR MACHINE
@@ -2006,7 +1964,7 @@ datasets, libraries, and accessing online resources. \\ \hline
 
 \newpage
 
-\chapter{SYSTEM DESIGN}
+\chapter{System Design}
 
 \section{Model Building}
 
@@ -2175,7 +2133,7 @@ the Confusion Matrix.
 % RESULTS AND DISCUSSION
 % =========================================================
 
-\chapter{RESULTS AND DISCUSSION}
+\chapter{Results and Discussion}
 
 This chapter presents and discusses the experimental results obtained
 from the Fake Review Detection system. The evaluation was performed
@@ -2533,10 +2491,7 @@ strong discrimination between fake and genuine reviews.
 To examine the performance of the developed Fake Review
 Detection System on previously unseen data, an external
 labelled dataset of hotel reviews without overlap with
-the training corpus was considered. The uploaded external
-dataset contained a pool of 1,733 hotel reviews, consisting
-of 995 reviews labelled as Fake/Deceptive and 738 reviews
-labelled as Genuine/Truthful.
+the training corpus was considered.
 
 To evaluate the system under a balanced test configuration
 comparable to the training class distribution, a balanced
@@ -2574,7 +2529,6 @@ on independent, unseen review data.
 \begin{tabular}{|l|c|}
 \hline
 \textbf{Description} & \textbf{Number of Reviews} \\ \hline
-Total Reviews in Uploaded External Pool & 1,733 \\ \hline
 Total Balanced Reviews Tested & 500 \\ \hline
 Fake / Deceptive Reviews Tested & 250 \\ \hline
 Genuine / Truthful Reviews Tested & 250 \\ \hline
@@ -2820,7 +2774,7 @@ improve performance over the TF--IDF baseline in this experiment.
 
 \newpage
 
-\chapter{MODEL DEPLOYMENT}
+\chapter{Model Deployment}
 
 The proposed Fake Review Detection system is deployed using a
 Streamlit-based web application that integrates the trained machine
@@ -2877,8 +2831,7 @@ and the prediction explanation provided by the deployed application.
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/deployment_result.png}
-    \caption{User interface displaying the hotel review
-    classification result and prediction probabilities.}
+    \caption{Hotel review classification result and prediction probabilities.}
     \label{fig:deployment_result}
 \end{figure}
 
@@ -2899,7 +2852,7 @@ probabilities.
 
 \newpage
 
-\chapter{GIT HISTORY}
+\chapter{Git History}
 
 The Git repository for the Fake Review Detection Using Machine
 Learning project contains the essential components required
@@ -2936,13 +2889,12 @@ including its directory structure.
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/github_repository.png}
-    \caption{GitHub repository structure of the Fake Review
-    Detection Using Machine Learning project.}
+    \caption{GitHub repository}
     \label{fig:github_repository}
 \end{figure}
 
 \newpage
-\chapter{CONCLUSION}
+\chapter{Conclusion}
 
 In conclusion, the Fake Review Detection Using Machine Learning
 project successfully achieved its objective of developing a
@@ -3001,7 +2953,7 @@ domains, and more advanced classification techniques.
 
 \newpage
 
-\chapter{FUTURE SCOPE}
+\chapter{Future Scope}
 
 \begin{itemize}
 
@@ -3049,7 +3001,7 @@ domains, and more advanced classification techniques.
 
 \newpage
 
-\chapter{APPENDIX}
+\chapter{Appendix}
 
 \section{Minimum Software Requirements}
 
@@ -3141,7 +3093,7 @@ or Microsoft Edge for accessing the Streamlit web application.
 % ==========================================
 
 \newpage
-\chapter{REFERENCES}
+\chapter{References}
 
 \begin{enumerate}
 

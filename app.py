@@ -11,9 +11,6 @@ from nltk.stem import WordNetLemmatizer
 from nltk.sentiment import SentimentIntensityAnalyzer
 from scipy.sparse import hstack, csr_matrix
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
 st.set_page_config(
     page_title="Fake Review Detection",
     page_icon="🔍",
@@ -84,9 +81,7 @@ div[data-testid="stMetric"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
 # NLTK SETUP
-# ============================================================
 @st.cache_resource
 def setup_nltk():
     for resource in [
@@ -103,9 +98,9 @@ def setup_nltk():
 
 stop_words, lemmatizer, analyzer = setup_nltk()
 
-# ============================================================
+  
 # LOAD TRAINED MODEL FILES
-# ============================================================
+ 
 @st.cache_resource
 def load_model_files():
     model_folder = Path(__file__).resolve().parent / "models"
@@ -121,9 +116,9 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
-# ============================================================
+  
 # VERIFY MODEL CONFIGURATION
-# ============================================================
+  
 feature_names = tfidf.get_feature_names_out()
 number_tfidf = len(feature_names)
 
@@ -135,9 +130,9 @@ if model.coef_.shape[1] != number_tfidf + 4:
     st.error("Feature dimension mismatch with TF-IDF + 4 VADER features.")
     st.stop()
 
-# ============================================================
+  
 # TEXT PREPROCESSING PIPELINE
-# ============================================================
+  
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r"<.*?>", " ", text)
@@ -152,9 +147,9 @@ def clean_text(text):
     ]
     return " ".join(words)
 
-# ============================================================
+  
 # VADER FEATURE EXTRACTION
-# ============================================================
+  
 def extract_vader_features(text):
     scores = analyzer.polarity_scores(str(text))
     return np.array([
@@ -164,9 +159,9 @@ def extract_vader_features(text):
         scores["compound"]
     ]).reshape(1, -1)
 
-# ============================================================
+  
 # BUILD COMBINED FEATURE VECTOR
-# ============================================================
+  
 def build_feature_vector(review_text):
     cleaned_review = clean_text(review_text)
     tfidf_vector = tfidf.transform([cleaned_review])
@@ -184,9 +179,9 @@ def build_feature_vector(review_text):
         combined_features
     )
 
-# ============================================================
+  
 # TF-IDF INFORMATION EXTRACTOR
-# ============================================================
+  
 def get_tfidf_information(tfidf_vector):
     row = tfidf_vector.getrow(0)
     information = []
@@ -200,9 +195,9 @@ def get_tfidf_information(tfidf_vector):
         df = df.sort_values("TF-IDF Value", ascending=False)
     return df
 
-# ============================================================
+  
 # FEATURE CONTRIBUTIONS TO LOGISTIC REGRESSION
-# ============================================================
+  
 def calculate_feature_contributions(tfidf_vector, vader_scaled):
     coefficients = model.coef_[0]
     tfidf_coefficients = coefficients[:number_tfidf]
@@ -241,9 +236,9 @@ def calculate_feature_contributions(tfidf_vector, vader_scaled):
     )
     return word_df, vader_df
 
-# ============================================================
+  
 # SAMPLE REVIEWS (From Academic Report Evaluation)
-# ============================================================
+  
 SAMPLE_REVIEWS = {
     "Deceptive Review 1 (Booking Issue)": (
         "We booked a room at the Hilton Chicago for two nights to stay the weekend but upon arrival our reservation could not be found. I even provided the hotel with our confirmation number but it still wasn't available! Fortunately another reservation had not shown up so there was space available for us. Once we settled into our room for the night (after a long flight), there was a bad odor coming from the bathroom. Apparently the cleaning solution they used was tainted and they had to re-clean it after our arrival. Needless to say, with both of these poor experiences in just one night, I will be hesitant to EVER stay in this hotel again, let alone any other Hilton around. Please consider someplace else before the Hilton Chicago!"
@@ -263,9 +258,9 @@ SAMPLE_REVIEWS = {
 if "review_text" not in st.session_state:
     st.session_state["review_text"] = ""
 
-# ============================================================
+  
 # SIDEBAR
-# ============================================================
+  
 with st.sidebar:
     st.markdown("### Model Details")
     st.markdown("""
@@ -280,9 +275,9 @@ with st.sidebar:
     """)
 
 
-# ============================================================
+  
 # COMPACT HEADER (Fits cleanly at the top of the first page)
-# ============================================================
+  
 st.markdown("""
 <div class="app-header">
     <h1 class="app-title">🔍 Fake Review Detection Using Machine Learning</h1>
@@ -292,9 +287,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ============================================================
+  
 # QUICK SAMPLE BUTTONS & TEXT INPUT
-# ============================================================
+  
 sample_cols = st.columns([1.3, 1.3, 1.3, 1.3, 0.8])
 with sample_cols[0]:
     if st.button("Sample Fake 1", use_container_width=True):
@@ -329,9 +324,9 @@ review = st.text_area(
 # Analyze Button (Full width, primary action)
 analyze_btn = st.button("Analyze Review", type="primary", use_container_width=True)
 
-# ============================================================
+  
 # PREDICTION & RESULTS (Displayed directly on first screen)
-# ============================================================
+  
 if analyze_btn:
     if not review.strip():
         st.warning("Please enter a hotel review before clicking Analyze Review.")
